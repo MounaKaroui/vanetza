@@ -4,6 +4,7 @@
 #include <vanetza/common/byte_order.hpp>
 #include <vanetza/net/access_category.hpp>
 #include <vanetza/net/mac_address.hpp>
+#include <vanetza/common/clock.hpp>
 
 namespace vanetza
 {
@@ -17,6 +18,7 @@ struct DataRequest
     uint16be_t ether_type;
     MacAddress source_addr;
     MacAddress destination_addr;
+    Clock::duration message_lifetime;
     AccessCategory access_category;
 };
 

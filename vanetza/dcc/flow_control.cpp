@@ -154,6 +154,7 @@ void FlowControl::transmit(const DataRequest& request, std::unique_ptr<ChunkPack
     access_request.destination_addr = request.destination;
     access_request.ether_type = request.ether_type;
     access_request.access_category = map_profile_onto_ac(request.dcc_profile);
+    access_request.message_lifetime = request.lifetime;
 
     m_access.request(access_request, std::move(packet));
     m_packet_transmit_hook(access_request.access_category);
