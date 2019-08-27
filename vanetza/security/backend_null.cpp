@@ -20,6 +20,11 @@ bool BackendNull::verify_data(const ecdsa256::PublicKey&, const ByteBuffer&, con
     return true;
 }
 
+boost::optional<Uncompressed> BackendNull::decompress_point(const EccPoint& ecc_point)
+{
+    return boost::none;
+}
+
 EcdsaSignature BackendNull::fake_signature() const
 {
     const std::size_t size = field_size(PublicKeyAlgorithm::ECDSA_NISTP256_With_SHA256);

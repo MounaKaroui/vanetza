@@ -48,8 +48,10 @@ ManagementInformationBase::ManagementInformationBase() :
     itsGnBcForwardingPacketBufferSize(1024),
     itsGnCbfPacketBufferSize(256),
     itsGnDefaultTrafficClass(false, false, 0),
+    vanetzaDefaultSeed(0xc0114c2c),
     vanetzaCbfMaxCounter(3),
-    vanetzaDeferInitialBeacon(false)
+    vanetzaDeferInitialBeacon(false),
+    vanetzaDisableBeaconing(false)
 {
 }
 

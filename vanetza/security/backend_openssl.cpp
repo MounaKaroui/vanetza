@@ -3,6 +3,7 @@
 #include <vanetza/security/public_key.hpp>
 #include <vanetza/security/signature.hpp>
 #include <openssl/bn.h>
+#include <openssl/ec.h>
 #include <openssl/ecdsa.h>
 #include <openssl/obj_mac.h>
 #include <openssl/sha.h>
@@ -68,6 +69,70 @@ bool BackendOpenSsl::verify_data(const ecdsa256::PublicKey& key, const ByteBuffe
     openssl::Signature signature(sig);
 
     return (ECDSA_do_verify(digest.data(), digest.size(), signature, pub) == 1);
+}
+
+boost::optional<Uncompressed> BackendOpenSsl::decompress_point(const EccPoint& ecc_point)
+{
+    struct DecompressionVisitor : public boost::static_visitor<bool>
+    {
+        bool operator()(const X_Coordinate_Only&)
+        {
+            return false;
+        }
+
+        bool operator()(const Compressed_Lsb_Y_0& p)
+        {
+            return decompress(p.x, 0);
+        }
+
+        bool operator()(const Compressed_Lsb_Y_1& p)
+        {
+            return decompress(p.x, 1);
+        }
+
+        bool operator()(const Uncompressed& p)
+        {
+            result = p;
+            return true;
+        }
+
+        bool decompress(const ByteBuffer& x, int y_bit)
+        {
+            openssl::BigNumberContext ctx;
+            openssl::BigNumber x_coordinate(x);
+            openssl::Group group(NID_X9_62_prime256v1);
+            openssl::Point point(group);
+            openssl::BigNumber y_coordinate;
+
+            result.x = x;
+            result.y.resize(result.x.size());
+
+#if OPENSSL_API_COMPAT < 0x10101000L
+            EC_POINT_set_compressed_coordinates_GFp(group, point, x_coordinate, y_bit, ctx);
+            EC_POINT_get_affine_coordinates_GFp(group, point, nullptr, y_coordinate, ctx);
+            std::size_t y_coordinate_bytes = BN_num_bytes(y_coordinate);
+            if (y_coordinate_bytes <= result.y.size()) {
+                BN_bn2bin(y_coordinate, result.y.data() + (result.y.size() - y_coordinate_bytes));
+                return true;
+            } else {
+                return false;
+            }
+#else
+            EC_POINT_set_compressed_coordinates(group, point, x_coordinate, y_bit, ctx);
+            EC_POINT_get_affine_coordinates(group, point, nullptr, y_coordinate, ctx);
+            return (BN_bn2binpad(y_coordinate, result.y.data(), result.y.size()) != -1);
+#endif
+        }
+
+        Uncompressed result;
+    };
+
+    DecompressionVisitor visitor;
+    if (boost::apply_visitor(visitor, ecc_point)) {
+        return visitor.result;
+    } else {
+        return boost::none;
+    }
 }
 
 std::array<uint8_t, 32> BackendOpenSsl::calculate_digest(const ByteBuffer& data) const

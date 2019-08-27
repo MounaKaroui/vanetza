@@ -5,6 +5,7 @@
 #include <vanetza/common/factory.hpp>
 #include <vanetza/security/ecdsa256.hpp>
 #include <vanetza/security/signature.hpp>
+#include <boost/optional/optional.hpp>
 #include <memory>
 #include <string>
 
@@ -37,6 +38,14 @@ public:
      * \return true if the data could be verified
      */
     virtual bool verify_data(const ecdsa256::PublicKey& public_key, const ByteBuffer& data, const EcdsaSignature& sig) = 0;
+
+    /**
+     * \brief decompress a possibly compressed elliptic curve point
+     *
+     * \param ecc_point elliptic curve point
+     * \return uncompressed point
+     */
+    virtual boost::optional<Uncompressed> decompress_point(const EccPoint& ecc_point) = 0;
 
     virtual ~Backend() = default;
 };

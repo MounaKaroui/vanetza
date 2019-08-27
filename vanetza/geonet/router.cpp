@@ -127,16 +127,19 @@ Router::Router(Runtime& rt, const MIB& mib) :
             mib.itsGnCbfPacketBufferSize * 1024),
     m_local_sequence_number(0),
     m_repeater(m_runtime,
-            std::bind(&Router::dispatch_repetition, this, std::placeholders::_1, std::placeholders::_2))
+            std::bind(&Router::dispatch_repetition, this, std::placeholders::_1, std::placeholders::_2)),
+    m_random_gen(mib.vanetzaDefaultSeed)
 {
-    if (!m_mib.vanetzaDeferInitialBeacon) {
-        // send Beacon immediately after start-up at next runtime trigger invocation
-        reset_beacon_timer(Clock::duration::zero());
-    } else {
-        // defer initial Beacon transmission slightly
-        std::uniform_real_distribution<double> dist(0.0, 1.0);
-        const auto first_beacon = dist(m_random_gen) * m_mib.itsGnBeaconServiceRetransmitTimer;
-        reset_beacon_timer(clock_cast(first_beacon));
+    if (!m_mib.vanetzaDisableBeaconing) {
+        if (!m_mib.vanetzaDeferInitialBeacon) {
+            // send Beacon immediately after start-up at next runtime trigger invocation
+            reset_beacon_timer(Clock::duration::zero());
+        } else {
+            // defer initial Beacon transmission slightly
+            std::uniform_real_distribution<double> dist(0.0, 1.0);
+            const auto first_beacon = dist(m_random_gen) * m_mib.itsGnBeaconServiceRetransmitTimer;
+            reset_beacon_timer(clock_cast(first_beacon));
+        }
     }
 }
 
@@ -609,6 +612,7 @@ NextHop Router::forwarding_algorithm_selection(PendingPacketForwarding&& packet,
         const LongPositionVector* pv_se = ll ? m_location_table.get_position(ll->sender) : nullptr;
         if (pv_se && pv_se->position_accuracy_indicator && inside_or_at_border(destination, pv_se->position())) {
             nh.discard();
+            forwarding_stopped(ForwardingStopReason::Outside_Destination_Area);
         } else {
             switch (m_mib.itsGnNonAreaForwardingAlgorithm) {
                 case UnicastForwarding::Unspecified:
@@ -695,6 +699,11 @@ void Router::pass_up(const DataIndication& ind, UpPacketPtr packet)
 
 void Router::on_beacon_timer_expired()
 {
+    if (m_mib.vanetzaDisableBeaconing) {
+        // bail out immediately if beaconing has been disabled
+        return;
+    }
+
     // Beacons originate in GeoNet layer, therefore no upper layer payload
     DownPacketPtr payload { new DownPacket() };
     auto pdu = create_beacon_pdu();
@@ -746,11 +755,13 @@ NextHop Router::greedy_forwarding(PendingPacketForwarding&& packet)
     units::Length mfr_dist = own;
 
     MacAddress mfr_addr;
-    for (auto& neighbour : m_location_table.neighbours()) {
-        const units::Length dist = distance(dest, neighbour.get_position_vector().position());
-        if (dist < mfr_dist) {
-            mfr_addr = neighbour.link_layer_address();
-            mfr_dist = dist;
+    for (const LocationTableEntry& neighbour : m_location_table.neighbours()) {
+        if (neighbour.has_position_vector()) {
+            const units::Length dist = distance(dest, neighbour.get_position_vector().position());
+            if (dist < mfr_dist) {
+                mfr_addr = neighbour.link_layer_address();
+                mfr_dist = dist;
+            }
         }
     }
 
@@ -837,15 +848,14 @@ units::Duration Router::timeout_cbf(units::Length prog) const
     const auto dist_max = m_mib.itsGnDefaultMaxCommunicationRange;
     const auto to_cbf_min = m_mib.itsGnCbfMinTime;
     const auto to_cbf_max = m_mib.itsGnCbfMaxTime;
-    auto to_cbf_gbc = to_cbf_min;
 
-    if (prog <= dist_max) {
-        to_cbf_gbc = to_cbf_max + (to_cbf_min - to_cbf_max) / dist_max * prog;
+    if (prog > dist_max) {
+        return to_cbf_min;
+    } else if (prog > 0.0 * units::si::meter) {
+        return to_cbf_max + (to_cbf_min - to_cbf_max) / dist_max * prog;
     } else {
-        to_cbf_gbc = to_cbf_min;
+        return to_cbf_max;
     }
-
-    return to_cbf_gbc;
 }
 
 units::Duration Router::timeout_cbf(const MacAddress& sender) const
@@ -958,7 +968,8 @@ bool Router::process_extended(const ExtendedPduConstRefs<ShbHeader>& pdu, const 
 
     // step 4: update location table with SO.PV (see C.2)
     auto& source_entry = m_location_table.update(shb.source_position);
-    assert(source_entry.has_position_vector());
+    // NOTE: position vector (PV) may still be missing in location table when received PV has been invalid
+    assert(source_entry.has_position_vector() || !is_valid(shb.source_position));
 
     // step 5: update SO.PDR in location table (see B.2)
     const std::size_t packet_size = size(packet, OsiLayer::Network, OsiLayer::Application);
