@@ -27,12 +27,13 @@ void FlowControl::request(const DataRequest& request, std::unique_ptr<ChunkPacke
     drop_expired();
 
     const TransmissionLite transmission { request.dcc_profile, packet->size() };
-    if (transmit_immediately(transmission)) {
-        m_trc.notify(transmission);
-        transmit(request, std::move(packet));
-    } else {
-        enqueue(request, std::move(packet));
-    }
+    transmit(request, std::move(packet));
+//    if (transmit_immediately(transmission)) {
+//        m_trc.notify(transmission);
+//        transmit(request, std::move(packet));
+//    } else {
+//        enqueue(request, std::move(packet));
+//    }
 }
 
 void FlowControl::trigger()
