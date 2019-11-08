@@ -14,6 +14,7 @@ set(CXX_SOURCES
     state_machine_budget.cpp
     smoothing_channel_probe_processor.cpp
     transmission.cpp
+    no_transmit_rate_control.cpp
 )
 
 add_vanetza_component(dcc ${CXX_SOURCES})
